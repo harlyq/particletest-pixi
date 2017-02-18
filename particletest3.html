@@ -1,0 +1,372 @@
+<!-
+Pixi particle demo, with update and view loops, with seperated the object data
+from the sprite data.  Because the demo is non-interactive, all the view
+cacluations can be calculated parametrically based upon the time (so the model
+only needs time and an initial seed).  Incorporated some features to support
+rewind and playback
+->
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="UTF-8"><title>particletest.html</title>
+  </head>
+  <body>
+  </body>
+
+  <style>
+    .modal {
+      display: block;
+      position: fixed;
+      z-index: 1;
+      left: 500px;
+      top: 0px;
+      width: 400px;
+      height: 800px;
+      background-color: rgb(200,200,200);
+      background-color: rgba(200,200,200,0.7);
+      user-select: none;
+    }
+
+    .ttActions {
+      display: block;
+      overflow: auto;
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/4.3.4/pixi.js" charset="utf-8"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/seedrandom/2.4.2/seedrandom.min.js"></script>
+  <script>
+var app = new PIXI.Application()
+
+document.body.appendChild(app.view)
+
+var sprites = new PIXI.particles.ParticleContainer(10000, {
+    scale: true,
+    position: true,
+    rotation: true,
+    uvs: true,
+    alpha: true
+})
+app.stage.addChild(sprites) // this will automatically render the stage
+
+var totalSprites = app.renderer instanceof PIXI.WebGLRenderer ? 10000 : 100
+
+// create a bounding box box for the little maggots
+var dudeBoundsPadding = 100
+var dudeBounds = new PIXI.Rectangle(
+    -dudeBoundsPadding,
+    -dudeBoundsPadding,
+    app.renderer.width + dudeBoundsPadding * 2,
+    app.renderer.height + dudeBoundsPadding * 2
+)
+
+var tt = {}
+var TT_PAUSED = 1
+var TT_RUNNING = 2
+
+tt.elem = document.createElement("div")
+tt.elem.setAttribute("id", "ttElem")
+tt.elem.className = "modal"
+
+document.body.appendChild(tt.elem)
+
+var TICK_MSG = "tick"
+ttInit(initModel(), update, view)
+
+function initModel() {
+    return { t: 0, seed: "sfhjkfdhjs" }
+}
+
+getMaggots = function() {
+  var memo
+  var maggots
+
+  return function(seed) {
+    if (memo == seed) {
+      // if the seed is constant, then just return the previous
+      // version of the maggots list
+      return maggots
+    }
+
+    maggots = []
+    lazySeed = seed
+
+    Math.seedrandom(seed)
+
+    // if we moved the update logic into the view (performing it parametrically rather than mutating the structure)
+    // this data would then be constant, and could also be performed (as a lazy
+    // calculation) during the view - using a seeded random
+    for (var i = 0; i < totalSprites; i++) {
+
+        var dude = {}
+
+        // different maggots, different sizes
+        dude.newScale = 0.8 + Math.random() * 0.3
+
+        // scatter them all
+        dude.startX = Math.random() * app.renderer.width
+        dude.startY = Math.random() * app.renderer.height
+        dude.offsetX = 0
+        dude.offsetY = 0
+
+        // create a random direction in radians
+        dude.startDirection = Math.random() * Math.PI * 2
+
+        // this number will be used to modify the direction of the sprite over time
+        dude.turningSpeed = Math.random() - 0.8
+
+        // create a random speed between 0 - 2, and these maggots are slooww
+        dude.speed = (2 + Math.random() * 2) * 0.2
+        dude.offsetAngle = Math.random() * 100
+
+        // finally we push the dude into the maggots array so it it can be easily accessed later
+        maggots.push(dude);
+    }
+
+    memo = seed
+    return maggots
+  }
+}()
+
+function view(model) {
+  // iterate through the sprites and update their position
+  var t = model.t
+
+  var dudes = getMaggots(model.seed)
+
+  for (var i = 0; i < dudes.length; i++) {
+
+      var dude = dudes[i]
+      var sprite
+
+      // if we already use a sprite for this dude, then reuse it
+      if (sprites.children.length > i) {
+        sprite = sprites.getChildAt(i)
+      } else {
+        // set the anchor point so the texture is centerd on the sprite
+        sprite = PIXI.Sprite.fromImage('assets/tinyMaggot.png')
+        sprite.anchor.set(0.5)
+        sprite.scale.set(dude.newScale)
+        sprite.tint = Math.random() * 0x808080
+
+        sprites.addChild(sprite)
+      }
+
+      // this is not quite the same as the original code (the offsets are not influenced by newScale)
+      // but it is a much simpler definite integral
+      var newScale = 0.95 + Math.sin(t + dude.offsetAngle) * 0.05
+      var turnRate = dude.turningSpeed * 0.1
+      var direction = dude.startDirection +  turnRate*t
+      var offsetX = 10*dude.speed*(1 - Math.cos(direction))/turnRate
+      var offsetY = 10*dude.speed*Math.sin(direction)/turnRate
+
+      sprite.scale.y = newScale
+      sprite.rotation = -direction + Math.PI
+
+      var x = dude.startX + offsetX
+      var y = dude.startY + offsetY
+
+      // wrap the maggots
+      if (x < dudeBounds.x) {
+          x += dudeBounds.width
+      }
+      else if (x > dudeBounds.x + dudeBounds.width) {
+          x -= dudeBounds.width
+      }
+
+      if (y < dudeBounds.y) {
+          y += dudeBounds.height
+      }
+      else if (y > dudeBounds.y + dudeBounds.height) {
+          y -= dudeBounds.height
+      }
+
+      sprite.x = x
+      sprite.y = y
+  }
+
+  // return html;
+}
+
+function update(model, action) {
+    var newModel
+
+    switch (action) {
+      case TICK_MSG:
+        newModel = updateModel(model)
+    }
+
+    return newModel
+}
+
+function updateModel(model) {
+  var newModel = { t: model.t + 0.1, seed: model.seed }
+
+  return newModel
+}
+
+app.ticker.add(function() {
+  action = TICK_MSG
+  ttUpdate(action)
+  ttView()
+
+  if (tt.isDirty) {
+    ttHtml(tt)
+    tt.isDirty = false
+  }
+})
+
+function ttStore(model, action) {
+  // recording from the last position of the replay, overwritting any old values
+  tt.history.length = tt.record
+
+  if (action) {
+    tt.history.push( { model: JSON.stringify(model), action: JSON.stringify(action) } )
+  } else {
+    tt.history.push( { model: JSON.stringify(model) } )
+  }
+  ++tt.record
+}
+
+function ttInit(model, update, view) {
+  tt.model = model
+  tt.update = update
+  tt.view = view
+  tt.state = TT_RUNNING
+  tt.modelDirty = true
+  tt.history = []
+  tt.record = 0
+
+  ttStore(model)
+
+  ttHtml(tt) // must be last
+}
+
+function ttUpdate(action) {
+  switch (tt.state) {
+    case TT_PAUSED:
+      // do nothing
+      break;
+
+    case TT_RUNNING:
+      tt.model = tt.update(tt.model, action)
+      ttStore(tt.model, action)
+      tt.modelDirty = true
+  }
+
+  return tt.model
+}
+
+function ttView() {
+  if (tt.modelDirty) {
+    tt.view(tt.model)
+    tt.modelDirty = false
+  }
+}
+
+function ttPause(data) {
+  data.state = TT_PAUSED
+  return data
+}
+
+function ttResumeFromEnd(data) {
+  data.replay = data.history.length
+  data.state = TT_RUNNING
+  return data
+}
+
+function ttResumeFromHistory(data) {
+  data.state = TT_RUNNING
+  return data
+}
+
+function ttDebugUpdate(data, action) {
+  switch (action.cmd) {
+    case "pause":
+      data = ttPause(data)
+      data.isDirty = true
+      break
+
+    case "resume":
+      data = ttResumeFromEnd(data)
+      data.isDirty = true
+      break
+
+    case "replay":
+      data = ttReplay(data, action.k)
+      break
+
+    case "next":
+      data = ttPause(data)
+      data = ttReplay(data, data.record)
+      break
+
+    case "previous":
+      data = ttPause(data)
+      data = ttReplay(data, data.record - 2)
+      break
+  }
+
+  return data
+}
+
+function ttReplay(data, k) {
+  var k2 = Math.max(0, Math.min(k, data.history.length))
+  if (k2 < data.history.length) {
+    var historicalModel = JSON.parse(data.history[k2].model)
+    data.view(historicalModel)
+    data.record = k2 + 1
+    data.state = TT_PAUSED
+  }
+  return data
+}
+
+function ttHtml(data) {
+  var html = "<button id='ttPause'>Pause</button><button id='ttResume'>Resume</button><button id='ttNext'>Next</button><button id='ttPrevious'>Previous</button>"
+
+  html += "<div class='ttActions'>"
+  for (i = 0; i < data.history.length; ++i) {
+    var history = data.history[i]
+    if (history.action) {
+      html += "<div ttindex='" + i + "'>" + history.action + "</div>"
+    } else {
+      html += "<div></div>"
+    }
+  }
+  html += "</div>"
+
+  // #TODO don't use multiple clicks on the one div
+  data.elem.innerHTML = html
+  data.elem.querySelector("#ttPause").onclick = ttPauseOnClick
+  data.elem.querySelector("#ttResume").onclick = ttResumeOnClick
+  data.elem.querySelector("#ttNext").onclick = ttNextOnClick
+  data.elem.querySelector("#ttPrevious").onclick = ttPreviousOnClick
+  data.elem.onclick = ttReplayOnClick
+}
+
+function ttPauseOnClick(e) {
+  tt = ttDebugUpdate(tt, {cmd: "pause"})
+}
+
+function ttResumeOnClick(e) {
+  tt = ttDebugUpdate(tt, {cmd: "resume"})
+}
+
+function ttReplayOnClick(e) {
+  var k = e.target.getAttribute("ttIndex")
+  if (k) {
+    tt = ttDebugUpdate(tt, {cmd: "replay", k: k})
+  }
+}
+
+function ttNextOnClick(e) {
+  tt = ttDebugUpdate(tt, {cmd: "next"})
+}
+
+function ttPreviousOnClick(e) {
+  tt = ttDebugUpdate(tt, {cmd: "previous"})
+}
+  </script>
+</html>

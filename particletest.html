@@ -1,0 +1,157 @@
+<!-
+Basic version of Pixi particle demo, with update and view loops
+->
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="UTF-8"><title>particletest.html</title>
+  </head>
+  <body>
+  </body>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/4.3.4/pixi.js" charset="utf-8"></script>
+  <script>
+var app = new PIXI.Application();
+document.body.appendChild(app.view);
+
+var sprites = new PIXI.particles.ParticleContainer(10000, {
+    scale: true,
+    position: true,
+    rotation: true,
+    uvs: true,
+    alpha: true
+});
+app.stage.addChild(sprites);
+
+var totalSprites = app.renderer instanceof PIXI.WebGLRenderer ? 10000 : 100;
+
+// create a bounding box box for the little maggots
+var dudeBoundsPadding = 100;
+var dudeBounds = new PIXI.Rectangle(
+    -dudeBoundsPadding,
+    -dudeBoundsPadding,
+    app.renderer.width + dudeBoundsPadding * 2,
+    app.renderer.height + dudeBoundsPadding * 2
+);
+
+var TICK_MSG = 1
+var model = init();
+
+function init() {
+  var maggots = []
+
+  for (var i = 0; i < totalSprites; i++) {
+
+      // create a new Sprite
+      var dude = PIXI.Sprite.fromImage('assets/tinyMaggot.png');
+
+      dude.tint = Math.random() * 0xE8D4CD;
+
+      // set the anchor point so the texture is centerd on the sprite
+      dude.anchor.set(0.5);
+
+      // different maggots, different sizes
+      dude.newScale = 0.8 + Math.random() * 0.3
+      dude.scale.set(dude.newScale);
+
+      // scatter them all
+      dude.startX = Math.random() * app.renderer.width;
+      dude.startY = Math.random() * app.renderer.height;
+      dude.offsetX = 0
+      dude.offsetY = 0
+
+      dude.tint = Math.random() * 0x808080;
+
+      // create a random direction in radians
+      dude.direction = Math.random() * Math.PI * 2;
+
+      // this number will be used to modify the direction of the sprite over time
+      dude.turningSpeed = Math.random() - 0.8;
+
+      // create a random speed between 0 - 2, and these maggots are slooww
+      dude.speed = (2 + Math.random() * 2) * 0.2;
+
+      dude.offsetAngle = Math.random() * 100;
+
+      // finally we push the dude into the maggots array so it it can be easily accessed later
+      maggots.push(dude);
+
+      sprites.addChild(dude);
+  }
+
+  return { t: 0, dudes: maggots }
+}
+
+function view(model) {
+  // iterate through the sprites and update their position
+  var t = model.t
+
+  for (var i = 0; i < model.dudes.length; i++) {
+
+      var dude = model.dudes[i];
+
+      dude.scale.y = dude.newScale
+      dude.rotation = -dude.direction + Math.PI;
+
+      var x = dude.startX + dude.offsetX
+      var y = dude.startY + dude.offsetY
+
+      // wrap the maggots
+      if (x < dudeBounds.x) {
+          x += dudeBounds.width;
+      }
+      else if (x > dudeBounds.x + dudeBounds.width) {
+          x -= dudeBounds.width;
+      }
+
+      if (y < dudeBounds.y) {
+          y += dudeBounds.height;
+      }
+      else if (y > dudeBounds.y + dudeBounds.height) {
+          y -= dudeBounds.height;
+      }
+
+      dude.x = x
+      dude.y = y
+  }
+
+  // return html;
+}
+
+function update(model, action) {
+    var newModel
+
+    switch (action) {
+      case TICK_MSG:
+        newModel = updateModel(model)
+    }
+
+    return newModel
+}
+
+function updateModel(model) {
+  var t = model.t + 0.1
+
+  var newModel = { t: t, dudes: model.dudes }
+
+  // inplace modification
+  // this could be calculated in view() using (very complicated) definite integrals
+  for (var i = 0; i < model.dudes.length; i++) {
+    var dude = model.dudes[i];
+
+    dude.newScale = 0.95 + Math.sin(t + dude.offsetAngle) * 0.05;
+    dude.direction += dude.turningSpeed * 0.01;
+    dude.offsetX += Math.sin(dude.direction) * (dude.speed * dude.newScale);
+    dude.offsetY += Math.cos(dude.direction) * (dude.speed * dude.newScale);
+  }
+
+  return newModel
+}
+
+app.ticker.add(function() {
+    action = TICK_MSG
+    model = update(model, action)
+    view(model)
+});
+  </script>
+</html>
